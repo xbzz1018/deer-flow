@@ -40,25 +40,33 @@ def test_codex_provider_rejects_blank_file_credentials(tmp_path, monkeypatch, pa
         CodexChatModel(model="gpt-5.4")
 
 
-def test_codex_provider_uses_normalized_access_token_in_authorization_header(tmp_path, monkeypatch):
+def test_codex_provider_sends_normalized_access_token_via_httpx(tmp_path, monkeypatch):
     auth_path = tmp_path / "auth.json"
     auth_path.write_text(json.dumps({"access_token": "  codex-access-token\n"}), encoding="utf-8")
     monkeypatch.setenv("CODEX_AUTH_PATH", str(auth_path))
 
-    captured: dict[str, dict] = {}
+    captured: dict[str, object] = {}
 
-    def capture_request(self, headers, payload):
-        captured["headers"] = headers
-        captured["payload"] = payload
-        return {"output": [], "usage": {}}
+    def capture_request(request):
+        captured["authorization"] = request.headers["Authorization"]
+        captured["url"] = str(request.url)
+        captured["payload"] = json.loads(request.content)
+        return codex_provider_module.httpx.Response(
+            200,
+            text='data: {"type":"response.completed","response":{"model":"gpt-5.4","output":[],"usage":{}}}\n\n',
+        )
 
-    monkeypatch.setattr(CodexChatModel, "_stream_response", capture_request)
+    transport = codex_provider_module.httpx.MockTransport(capture_request)
+    original_client = codex_provider_module.httpx.Client
+    monkeypatch.setattr(codex_provider_module.httpx, "Client", lambda *args, **kwargs: original_client(*args, transport=transport, **kwargs))
 
     model = CodexChatModel(model="gpt-5.4")
-    model._call_codex_api([HumanMessage(content="hello")])
+    response = model._call_codex_api([HumanMessage(content="hello")])
 
-    assert captured["headers"]["Authorization"] == "Bearer codex-access-token"
+    assert captured["authorization"] == "Bearer codex-access-token"
+    assert captured["url"] == "https://chatgpt.com/backend-api/codex/responses"
     assert captured["payload"]["input"] == [{"role": "user", "content": "hello"}]
+    assert response["model"] == "gpt-5.4"
 
 
 def test_codex_provider_concatenates_multiple_system_messages(monkeypatch):
