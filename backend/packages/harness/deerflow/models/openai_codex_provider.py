@@ -182,6 +182,14 @@ class CodexChatModel(BaseChatModel):
                         }
                     )
             elif isinstance(msg, ToolMessage):
+                # Responses API requires a non-empty call_id that matches a
+                # preceding function_call.  The agent middleware normally
+                # repairs malformed IDs, but this provider is also usable
+                # directly with persisted or hand-built messages.  Do not
+                # send a schema-invalid function_call_output in that case.
+                if not isinstance(msg.tool_call_id, str) or not msg.tool_call_id.strip():
+                    logger.warning("Skipping Codex tool result with an empty tool_call_id")
+                    continue
                 input_items.append(
                     {
                         "type": "function_call_output",

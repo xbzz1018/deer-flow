@@ -211,6 +211,16 @@ def test_convert_messages_tool_message():
     assert items[0]["output"] == "result data"
 
 
+def test_convert_messages_drops_tool_result_with_blank_call_id():
+    """Never send a function_call_output that the Responses API cannot match."""
+    model = _make_model()
+
+    for call_id in ("", "   "):
+        _, items = model._convert_messages([ToolMessage(content="orphaned result", tool_call_id=call_id)])
+
+        assert items == []
+
+
 def test_convert_messages_keeps_placeholder_result_paired_with_invalid_tool_call():
     """A malformed call stays on invalid_tool_calls but is answered by a placeholder
     ToolMessage, so it must still serialize as a function_call item.
